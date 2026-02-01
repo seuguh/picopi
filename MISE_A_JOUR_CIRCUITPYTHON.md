@@ -29,6 +29,17 @@ Cette étape rend la carte détectable comme un stockage USB.
 
 **Résultat attendu** : Un nouveau lecteur nommé **`RPI-RP2`** apparaît sur votre ordinateur (comme une clé USB).
 
+### 2-bis
+La procédure d'avant ne fonctionne pas mais le pico fonctionne.
+dans la console, écrire:
+```
+import microcontroller
+microcontroller.on_next_reset(microcontroller.RunMode.BOOTLOADER)
+microcontroller.reset()
+```
+**Résultat attendu** : Un nouveau lecteur nommé **`RPI-RP2`** apparaît sur votre ordinateur (comme une clé USB).
+
+
 ### 3. Installer le firmware CircuitPython
 1. Accédez au dossier de téléchargement et localisez le fichier **`.uf2`**.
 2. Faites un **Glisser-Déposer** (ou Copier-Coller) de ce fichier vers le lecteur **`RPI-RP2`**.
@@ -75,7 +86,6 @@ Cette étape rend la carte détectable comme un stockage USB.
 - **Documentation officielle** : [learn.adafruit.com/welcome-to-circuitpython](https://learn.adafruit.com/welcome-to-circuitpython)
 - **Guide d'installation vidéo** : [Adafruit CircuitPython Installation](https://www.youtube.com/watch?v=8w8qHcPhiPM)
 - **Bibliothèque de pilotes (drivers)** : [circuitpython.org/libraries](https://circuitpython.org/libraries)
-
 ---
 
 *Note : Ce processus efface tout le système de fichiers précédent de la carte. Sauvegardez vos fichiers importants du lecteur `CIRCUITPY` avant de procéder si vous effectuez une mise à jour.*

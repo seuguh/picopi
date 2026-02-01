@@ -1,593 +1,877 @@
-# Heures sur 2 premières lignes
-# Minutes sur 2 suivantes
-# 1 LED = 1 bit
-# Ex: 10h30 = 1010 (h) 11110 (min)"""
-# HORLOGE BINAIRE ÉLÉGANTE 8x8
-#Affiche l'heure, minutes, secondes en binaire avec animations
-#"""
+"""
+HORLOGE BINAIRE ÉLÉGANTE 8x8 - CIRCUITPYTHON 10.0.3
+Affiche l'heure, minutes, secondes en binaire avec animations
+Version optimisée pour CircuitPython 10.0.3
+"""
 
 import board
 import time
-from neopixel_matrix_optimized import NeoPixelMatrix, hsv_to_rgb
 import math
-
+import sys
+import os
 
 # ============================================================================
-# CONFIGURATION
+# CONFIGURATION AVANCÉE
 # ============================================================================
 
 LED_PIN = board.GP0
-BRIGHTNESS = 0.2
+BRIGHTNESS = 0.25
+USE_HW_RTC = False  # Mettre à True si vous avez un module RTC
+USE_NTP = False     # Mettre à True pour synchronisation WiFi
+BUTTON_PIN = board.GP1  # Bouton pour changement de mode
 
-# Couleurs pour chaque composante de temps
-COLOR_HOURS = (255, 100, 0)      # Orange
-COLOR_MINUTES = (0, 255, 100)    # Vert clair  
-COLOR_SECONDS = (100, 150, 255)  # Bleu clair
-COLOR_SEPARATOR = (150, 150, 150)  # Gris pour séparateurs
+# Couleurs avec saturation améliorée
+COLOR_HOURS = (255, 80, 0)        # Orange vif
+COLOR_MINUTES = (0, 255, 80)      # Vert émeraude
+COLOR_SECONDS = (80, 180, 255)    # Bleu ciel
+COLOR_SEPARATOR = (180, 180, 180) # Gris clair
+COLOR_BACKGROUND = (5, 5, 10)     # Bleu nuit très sombre
 
 # Modes d'affichage
 MODE_BINARY = 0      # Bits statiques
 MODE_COUNTING = 1    # Animation de comptage
 MODE_PULSE = 2       # Pulsation avec les secondes
 MODE_RAINBOW = 3     # Couleurs arc-en-ciel
+MODE_MATRIX = 4      # Effet "Matrix digital rain"
+MODE_FIRE = 5        # Effet feu
+MODE_COUNT = 6       # Nombre total de modes
 
-# Position des bits sur la matrice
-# Chaque valeur (H, M, S) occupe 2 colonnes, 8 bits verticaux
+# Configuration d'affichage
 BIT_POSITIONS = {
-    'hours': {
-        'col_start': 0,    # Colonnes 0-1 pour heures
-        'col_end': 1,
-        'bit_height': 8,   # 8 bits = 0-255 (mais heures max 23)
-    },
-    'minutes': {
-        'col_start': 2,    # Colonnes 2-3 pour minutes
-        'col_end': 3,
-        'bit_height': 8,   # 8 bits = 0-255 (minutes max 59)
-    },
-    'seconds': {
-        'col_start': 4,    # Colonnes 4-5 pour secondes
-        'col_end': 5,
-        'bit_height': 8,   # 8 bits = 0-255 (secondes max 59)
-    }
+    'hours': {'col_start': 0, 'col_end': 1, 'bits': 5},   # 0-23 = 5 bits max
+    'minutes': {'col_start': 2, 'col_end': 3, 'bits': 6}, # 0-59 = 6 bits max
+    'seconds': {'col_start': 4, 'col_end': 5, 'bits': 6}, # 0-59 = 6 bits max
 }
 
-
 # ============================================================================
-# CLASSES UTILITAIRES
+# IMPORTS CONDITIONNELS
 # ============================================================================
 
-class BinaryClock:
-    """Gère l'affichage binaire sur la matrice."""
-    
-    def __init__(self, matrix, mode=MODE_BINARY):
-        self.matrix = matrix
-        self.mode = mode
-        self.animation_frame = 0
-        self.last_second = -1
+print(f"\n{'='*60}")
+print(f"HORLOGE BINAIRE 8x8 - CircuitPython {sys.version.split()[0]}")
+print(f"{'='*60}")
+
+# Tester les fonctionnalités de la version 10
+print("\n📊 Tests de fonctionnalités:")
+print(f"  • F-strings: {'✓' if sys.version_info >= (3,6) else '✗'}")
+print(f"  • math.tau: {'✓' if hasattr(math, 'tau') else '✗'}")
+print(f"  • time.monotonic_ns: {'✓' if hasattr(time, 'monotonic_ns') else '✗'}")
+
+try:
+    import neopixel
+    from neopixel_matrix_optimized import NeoPixelMatrix, hsv_to_rgb
+    print("  • NeoPixelMatrix: ✓")
+except ImportError as e:
+    print(f"  • NeoPixelMatrix: ✗ ({e})")
+    # Création d'une classe de secours améliorée
+    class NeoPixelMatrix:
+        def __init__(self, pin, brightness=0.3, width=8, height=8, auto_write=False):
+            self.width = width
+            self.height = height
+            self.brightness = brightness
+            self.auto_write = auto_write
+            self.pixels = [[(0,0,0) for _ in range(width)] for _ in range(height)]
+            print(f"  Matrice virtuelle {width}x{height} créée")
         
-    def display_time(self, hours, minutes, seconds, animate=True):
-        """
-        Affiche l'heure en binaire.
+        def __getitem__(self, index):
+            return self.pixels[index]
         
-        Args:
-            hours: 0-23
-            minutes: 0-59
-            seconds: 0-59
-            animate: True pour activer les animations
-        """
-        # Effacer l'écran
-        self.matrix.fill((0, 0, 0))
+        def set_pixel(self, x, y, color):
+            if 0 <= x < self.width and 0 <= y < self.height:
+                r, g, b = color
+                # Application de la luminosité
+                r = int(r * self.brightness)
+                g = int(g * self.brightness)
+                b = int(b * self.brightness)
+                self.pixels[y][x] = (r, g, b)
+                if self.auto_write:
+                    self.show()
         
-        # Déterminer si on anime (changement de seconde)
-        do_animation = animate and (seconds != self.last_second)
-        self.last_second = seconds
+        def get_pixel(self, x, y):
+            if 0 <= x < self.width and 0 <= y < self.height:
+                return self.pixels[y][x]
+            return (0,0,0)
         
-        # Afficher chaque composante
-        self._display_binary_value(hours, 'hours', do_animation)
-        self._display_binary_value(minutes, 'minutes', do_animation)
-        self._display_binary_value(seconds, 'seconds', do_animation)
+        def fill(self, color):
+            r, g, b = color
+            r = int(r * self.brightness)
+            g = int(g * self.brightness)
+            b = int(b * self.brightness)
+            for y in range(self.height):
+                for x in range(self.width):
+                    self.pixels[y][x] = (r, g, b)
         
-        # Ajouter des séparateurs/décorations
-        self._draw_separators()
+        def show(self):
+            # Pour debug: afficher un aperçu ASCII
+            if os.getenv('DEBUG_MATRIX'):
+                print("\n" + "-"*25)
+                for y in range(self.height):
+                    row = ""
+                    for x in range(self.width):
+                        r, g, b = self.pixels[y][x]
+                        if sum((r, g, b)) > 50:
+                            row += "██"
+                        else:
+                            row += "  "
+                    print(row)
         
-        # Effets d'animation globaux
-        if self.mode == MODE_PULSE and do_animation:
-            self._pulse_effect()
-        elif self.mode == MODE_RAINBOW:
-            self._rainbow_effect()
-            
-        self.animation_frame += 1
-        self.matrix.show()
-    
-    def _display_binary_value(self, value, value_type, animate=False):
-        """Affiche une valeur en binaire à sa position."""
-        config = BIT_POSITIONS[value_type]
+        def clear(self):
+            self.fill((0,0,0))
+            self.show()
         
-        # Couleur selon le type
-        if value_type == 'hours':
-            base_color = COLOR_HOURS
-        elif value_type == 'minutes':
-            base_color = COLOR_MINUTES
-        else:  # seconds
-            base_color = COLOR_SECONDS
-        
-        # Convertir en binaire (8 bits)
-        binary_str = format(value, '08b')
-        
-        # Pour chaque colonne (2 colonnes par valeur)
-        for col_offset in range(2):
-            col = config['col_start'] + col_offset
-            
-            # 4 bits par colonne (bits 7-4 pour col0, bits 3-0 pour col1)
-            if col_offset == 0:
-                bits = binary_str[:4]  # 4 bits de poids fort
-            else:
-                bits = binary_str[4:]  # 4 bits de poids faible
-            
-            # Afficher chaque bit
-            for row_offset, bit in enumerate(bits):
-                row = 7 - row_offset  # Inversé: bit 0 en haut, bit 7 en bas
-                
-                if bit == '1':
-                    # LED allumée
-                    color = self._get_animated_color(base_color, row_offset, col_offset, 
-                                                    value_type, animate)
-                    self.matrix.set_pixel(col, row, color)
-                elif self.mode == MODE_COUNTING and animate:
-                    # Animation de comptage (éclairer brièvement même les bits 0)
-                    if self.animation_frame % 30 < 5:  # Clignotement rapide
-                        faded_color = tuple(c // 8 for c in base_color)
-                        self.matrix.set_pixel(col, row, faded_color)
-    
-    def _get_animated_color(self, base_color, bit_pos, col_offset, value_type, animate):
-        """Calcule la couleur avec effets d'animation."""
-        r, g, b = base_color
-        
-        if self.mode == MODE_RAINBOW:
-            # Effet arc-en-ciel progressif
-            hue = (self.animation_frame * 5 + bit_pos * 30 + col_offset * 60) % 360
-            return hsv_to_rgb(hue / 360, 0.8, 1.0)
-        
-        elif self.mode == MODE_PULSE and animate and value_type == 'seconds':
-            # Pulsation pour les secondes
-            pulse = (math.sin(self.animation_frame * 0.5) * 0.3 + 0.7)
-            return tuple(int(c * pulse) for c in base_color)
-        
-        elif self.mode == MODE_COUNTING and animate:
-            # Effet de "comptage" - éclairer progressivement
-            delay = bit_pos + col_offset * 4
-            if self.animation_frame % 60 > delay * 3:
-                return base_color
-            else:
-                return tuple(c // 4 for c in base_color)
-        
-        else:
-            # Mode binaire simple
-            return base_color
-    
-    def _draw_separators(self):
-        """Dessine des séparateurs entre heures/minutes/seconds."""
-        # Colonne 6: séparateurs verticaux
-        for row in [1, 3, 5]:
-            self.matrix.set_pixel(6, row, COLOR_SEPARATOR)
-        
-        # Colonne 7: animation décorative
-        if self.mode == MODE_PULSE:
-            # Barre qui monte et descend avec les secondes
-            height = (self.animation_frame % 60) // 7.5  # 0-8
-            for row in range(8):
-                if row < height:
-                    intensity = 100 + row * 20
-                    self.matrix.set_pixel(7, 7 - row, (intensity, intensity, intensity))
-        elif self.mode == MODE_RAINBOW:
-            # Barre arc-en-ciel verticale
-            for row in range(8):
-                hue = (self.animation_frame * 10 + row * 45) % 360
-                color = hsv_to_rgb(hue / 360, 0.7, 0.6)
-                self.matrix.set_pixel(7, row, color)
-        else:
-            # Points décoratifs
-            dot_pos = (self.animation_frame // 10) % 8
-            self.matrix.set_pixel(7, dot_pos, COLOR_SEPARATOR)
-    
-    def _pulse_effect(self):
-        """Effet de pulsation global."""
-        pulse = (math.sin(self.animation_frame * 0.2) * 0.1 + 0.9)
-        self.matrix.dim(pulse)
-    
-    def _rainbow_effect(self):
-        """Applique un léger effet arc-en-ciel sur toute la matrice."""
-        for x in range(8):
-            for y in range(8):
-                current_color = self.matrix.get_pixel(x, y)
-                if sum(current_color) > 0:  # Si pixel allumé
-                    hue_shift = (self.animation_frame * 2 + x * 10 + y * 5) % 360
-                    # Convertir RGB -> HSV -> modifier teinte -> RGB
-                    # (simplifié pour l'exemple)
-                    r, g, b = current_color
-                    hsv_factor = math.sin(hue_shift * math.pi / 180) * 0.2 + 0.8
-                    new_color = (
-                        min(255, int(r * hsv_factor)),
-                        min(255, int(g * hsv_factor)),
-                        min(255, int(b * hsv_factor))
+        def dim(self, factor):
+            for y in range(self.height):
+                for x in range(self.width):
+                    r, g, b = self.pixels[y][x]
+                    self.pixels[y][x] = (
+                        int(r * factor),
+                        int(g * factor),
+                        int(b * factor)
                     )
-                    self.matrix.set_pixel(x, y, new_color)
     
-    def set_mode(self, mode):
-        """Change le mode d'affichage."""
-        self.mode = mode
-        self.animation_frame = 0
-
-
-# ============================================================================
-# GESTION DU TEMPS
-# ============================================================================
-
-class TimeManager:
-    """Gère l'heure et les fonctions temporelles."""
-    
-    def __init__(self, use_rtc=True):
-        self.use_rtc = use_rtc
-        self.start_time = time.monotonic()
-        self.simulated_time = (12, 0, 0)  # Heure de départ si pas de RTC
+    def hsv_to_rgb(hue, saturation=1.0, value=1.0):
+        """Conversion HSV vers RGB optimisée."""
+        hue = hue % 1.0
+        i = int(hue * 6.0)
+        f = hue * 6.0 - i
+        p = value * (1.0 - saturation)
+        q = value * (1.0 - f * saturation)
+        t = value * (1.0 - (1.0 - f) * saturation)
         
-        # Essayer d'initialiser l'RTC hardware si disponible
+        i %= 6
+        if i == 0:
+            return (int(value * 255), int(t * 255), int(p * 255))
+        elif i == 1:
+            return (int(q * 255), int(value * 255), int(p * 255))
+        elif i == 2:
+            return (int(p * 255), int(value * 255), int(t * 255))
+        elif i == 3:
+            return (int(p * 255), int(q * 255), int(value * 255))
+        elif i == 4:
+            return (int(t * 255), int(p * 255), int(value * 255))
+        else:
+            return (int(value * 255), int(p * 255), int(q * 255))
+
+# ============================================================================
+# GESTION DU TEMPS AVANCÉE
+# ============================================================================
+
+class AdvancedTimeManager:
+    """Gestion avancée du temps avec multiples sources."""
+    
+    def __init__(self):
+        self.start_time = time.monotonic_ns() if hasattr(time, 'monotonic_ns') else time.monotonic()
         self.rtc = None
-        if use_rtc:
-            try:
-                import rtc
-                self.rtc = rtc.RTC()
-                print("RTC hardware initialisé")
-            except:
-                print("RTC hardware non disponible, utilisation du temps simulé")
+        self.ntp_synced = False
+        self.time_offset = 0
+        
+        # Initialiser RTC hardware si disponible
+        if USE_HW_RTC:
+            self._init_hw_rtc()
+        
+        # Configuration par défaut
+        self.current_time = (12, 0, 0)  # MIDI par défaut
+        print(f"⏰ Gestionnaire temps initialisé (RTC: {self.rtc is not None})")
+    
+    def _init_hw_rtc(self):
+        """Initialise le RTC hardware."""
+        try:
+            import rtc
+            self.rtc = rtc.RTC()
+            
+            # Essayer de synchroniser avec NTP si demandé
+            if USE_NTP:
+                self._sync_with_ntp()
+                
+        except ImportError:
+            print("⚠️ Module rtc non disponible")
+        except Exception as e:
+            print(f"⚠️ Erreur RTC: {e}")
+    
+    def _sync_with_ntp(self):
+        """Synchronise avec un serveur NTP."""
+        try:
+            import socketpool
+            import wifi
+            import adafruit_ntp
+            
+            # Connexion WiFi (à configurer)
+            wifi.radio.connect(os.getenv('WIFI_SSID'), os.getenv('WIFI_PASSWORD'))
+            
+            pool = socketpool.SocketPool(wifi.radio)
+            ntp = adafruit_ntp.NTP(pool, tz_offset=1)  # UTC+1 pour France
+            
+            # Mettre à jour le RTC
+            self.rtc.datetime = ntp.datetime
+            self.ntp_synced = True
+            
+            print("✅ Synchronisation NTP réussie")
+            
+        except Exception as e:
+            print(f"⚠️ Erreur NTP: {e}")
     
     def get_time(self):
-        """Retourne l'heure actuelle (heures, minutes, secondes)."""
+        """Récupère l'heure actuelle depuis la source appropriée."""
         if self.rtc:
-            # Lire depuis RTC hardware
+            # Heure depuis RTC hardware
             now = self.rtc.datetime
             return now.tm_hour, now.tm_min, now.tm_sec
         else:
-            # Temps simulé (incrémenté à chaque appel)
-            hours, minutes, seconds = self.simulated_time
+            # Heure simulée basée sur le temps écoulé
+            if hasattr(time, 'monotonic_ns'):
+                elapsed_ns = time.monotonic_ns() - self.start_time
+                elapsed = elapsed_ns / 1_000_000_000  # Conversion en secondes
+            else:
+                elapsed = time.monotonic() - self.start_time
             
-            # Incrémenter le temps simulé
-            elapsed = time.monotonic() - self.start_time
-            total_seconds = int(elapsed)
+            # Ajouter à l'heure de départ
+            total_seconds = int(elapsed) + self.time_offset
+            seconds = total_seconds % 60
+            minutes = (total_seconds // 60) % 60
+            hours = (total_seconds // 3600) % 24
             
-            new_hours = (total_seconds // 3600 + hours) % 24
-            new_minutes = (total_seconds // 60 + minutes) % 60
-            new_seconds = (total_seconds + seconds) % 60
-            
-            self.simulated_time = (new_hours, new_minutes, new_seconds)
-            return self.simulated_time
+            return hours, minutes, seconds
     
     def set_time(self, hours, minutes, seconds=0):
         """Règle l'heure manuellement."""
-        if self.rtc:
-            # Mettre à jour l'RTC hardware
-            import rtc
-            import adafruit_ntp
-            # (Code simplifié - nécessite connexion internet pour NTP)
-            print("Utilisez NTP ou un module RTC pour régler l'heure précise")
+        self.current_time = (hours % 24, minutes % 60, seconds % 60)
+        
+        if hasattr(time, 'monotonic_ns'):
+            self.start_time = time.monotonic_ns()
         else:
-            # Mettre à jour le temps simulé
-            self.simulated_time = (hours % 24, minutes % 60, seconds % 60)
             self.start_time = time.monotonic()
-            print(f"Heure réglée à {hours:02d}:{minutes:02d}:{seconds:02d}")
+        
+        self.time_offset = hours * 3600 + minutes * 60 + seconds
+        print(f"🕐 Heure réglée: {hours:02d}:{minutes:02d}:{seconds:02d}")
     
     def get_binary_debug(self, hours, minutes, seconds):
-        """Retourne une représentation texte du temps en binaire."""
-        h_bin = format(hours, '08b')
-        m_bin = format(minutes, '08b')
-        s_bin = format(seconds, '08b')
+        """Retourne une représentation texte debug."""
+        h_bin = f"{hours:08b}"
+        m_bin = f"{minutes:08b}"
+        s_bin = f"{seconds:08b}"
         
-        return f"{hours:02d}:{minutes:02d}:{seconds:02d} = " \
-               f"H:{h_bin} M:{m_bin} S:{s_bin}"
-
+        # Version détaillée avec bits marqués
+        h_marked = self._mark_active_bits(h_bin, 5)  # 5 bits pour heures
+        m_marked = self._mark_active_bits(m_bin, 6)  # 6 bits pour minutes
+        s_marked = self._mark_active_bits(s_bin, 6)  # 6 bits pour secondes
+        
+        return (f"{hours:02d}:{minutes:02d}:{seconds:02d}\n"
+                f"H:{h_marked} ({hours:2d})\n"
+                f"M:{m_marked} ({minutes:2d})\n"
+                f"S:{s_marked} ({seconds:2d})")
+    
+    def _mark_active_bits(self, binary_str, significant_bits):
+        """Marque les bits significatifs."""
+        result = []
+        for i, bit in enumerate(binary_str):
+            if i >= (8 - significant_bits):
+                # Bit significatif
+                if bit == '1':
+                    result.append(f"¹")  # Exposant pour bit actif
+                else:
+                    result.append(f"⁰")  # Exposant pour bit inactif
+            else:
+                # Bit non significatif (toujours 0 pour nos plages)
+                result.append("·")
+        return "".join(result)
+    
+    def get_time_fraction(self):
+        """Retourne la fraction de la journée écoulée (0.0 à 1.0)."""
+        h, m, s = self.get_time()
+        total_seconds = h * 3600 + m * 60 + s
+        return total_seconds / 86400.0
 
 # ============================================================================
-# AFFICHAGE D'INFORMATIONS
+# HORLOGE BINAIRE AVANCÉE
 # ============================================================================
 
-class InfoDisplay:
-    """Affiche des informations et menus."""
+class AdvancedBinaryClock:
+    """Horloge binaire avec effets avancés."""
     
     def __init__(self, matrix):
         self.matrix = matrix
+        self.mode = MODE_BINARY
+        self.animation_time = 0
+        self.last_update = time.monotonic()
+        self.transition_progress = 0.0
+        self.target_mode = MODE_BINARY
+        
+        # État pour les effets spéciaux
+        self.matrix_drops = []  # Pour l'effet Matrix
+        self.fire_heat = [[0.0 for _ in range(8)] for _ in range(8)]  # Pour l'effet feu
     
-    def show_boot_animation(self):
-        """Animation de démarrage."""
-        print("=== HORLOGE BINAIRE 8x8 ===")
-        print("Affichage binaire:")
-        print("Colonnes 0-1: Heures (0-23)")
-        print("Colonnes 2-3: Minutes (0-59)")
-        print("Colonnes 4-5: Secondes (0-59)")
-        print("1 pixel = 1 bit (0=éteint, 1=allumé)")
+    def update(self, hours, minutes, seconds):
+        """Met à jour l'affichage."""
+        current_time = time.monotonic()
+        delta_time = current_time - self.last_update
+        self.last_update = current_time
+        self.animation_time += delta_time
         
-        # Animation de démarrage
-        for i in range(8):
-            for x in range(8):
-                for y in range(8):
-                    if x == i or y == i:
-                        color = hsv_to_rgb(i * 45 / 360, 1.0, 1.0)
-                        self.matrix.set_pixel(x, y, color)
-            self.matrix.show()
-            time.sleep(0.05)
+        # Gestion des transitions de mode
+        if self.mode != self.target_mode:
+            self.transition_progress = min(1.0, self.transition_progress + delta_time * 2)
+            if self.transition_progress >= 1.0:
+                self.mode = self.target_mode
         
-        time.sleep(0.5)
-        self.matrix.fill((0, 0, 0))
+        # Effacer avec fond optionnel
+        if self.mode in [MODE_MATRIX, MODE_FIRE]:
+            self.matrix.fill(COLOR_BACKGROUND)
+        else:
+            self.matrix.fill((0, 0, 0))
+        
+        # Appliquer le mode courant
+        if self.mode == MODE_BINARY:
+            self._draw_binary(hours, minutes, seconds)
+        elif self.mode == MODE_COUNTING:
+            self._draw_counting(hours, minutes, seconds)
+        elif self.mode == MODE_PULSE:
+            self._draw_pulse(hours, minutes, seconds)
+        elif self.mode == MODE_RAINBOW:
+            self._draw_rainbow(hours, minutes, seconds)
+        elif self.mode == MODE_MATRIX:
+            self._draw_matrix_effect(hours, minutes, seconds)
+        elif self.mode == MODE_FIRE:
+            self._draw_fire_effect(hours, minutes, seconds)
+        
+        # Appliquer la transition si en cours
+        if self.transition_progress < 1.0:
+            self._apply_transition()
+        
         self.matrix.show()
     
-    def show_binary_example(self, value, color, label=""):
-        """Affiche un exemple de conversion binaire."""
-        print(f"\nExemple {label}: {value} décimal = {format(value, '08b')} binaire")
+    def _draw_binary(self, hours, minutes, seconds):
+        """Mode binaire classique."""
+        self._draw_binary_value(hours, BIT_POSITIONS['hours'], COLOR_HOURS)
+        self._draw_binary_value(minutes, BIT_POSITIONS['minutes'], COLOR_MINUTES)
+        self._draw_binary_value(seconds, BIT_POSITIONS['seconds'], COLOR_SECONDS)
+        self._draw_separators()
+    
+    def _draw_binary_value(self, value, config, base_color):
+        """Dessine une valeur binaire."""
+        binary_str = f"{value:08b}"
         
-        self.matrix.fill((0, 0, 0))
-        binary_str = format(value, '08b')
-        
-        # Afficher sur les colonnes du milieu
         for col_offset in range(2):
-            col = 3 + col_offset
+            col = config['col_start'] + col_offset
             bits = binary_str[col_offset*4:(col_offset+1)*4]
             
             for row_offset, bit in enumerate(bits):
-                row = 7 - row_offset
                 if bit == '1':
-                    self.matrix.set_pixel(col, row, color)
-        
-        self.matrix.show()
-        time.sleep(2)
-        self.matrix.fill((0, 0, 0))
-        self.matrix.show()
+                    # Animation subtile sur les bits actifs
+                    pulse = 0.9 + 0.1 * math.sin(self.animation_time * 3 + row_offset)
+                    color = tuple(int(c * pulse) for c in base_color)
+                    self.matrix.set_pixel(col, 7 - row_offset, color)
     
-    def display_decimal_time(self, hours, minutes, seconds):
-        """Affiche brièvement l'heure en décimal."""
-        # Utiliser les chiffres si disponibles, sinon animation simple
+    def _draw_counting(self, hours, minutes, seconds):
+        """Mode avec animation de comptage."""
+        # Utiliser les secondes pour animer le "comptage"
+        count_progress = (seconds % 10) / 10.0
+        
+        for value, config, color in [
+            (hours, BIT_POSITIONS['hours'], COLOR_HOURS),
+            (minutes, BIT_POSITIONS['minutes'], COLOR_MINUTES),
+            (seconds, BIT_POSITIONS['seconds'], COLOR_SECONDS)
+        ]:
+            binary_str = f"{value:08b}"
+            
+            for col_offset in range(2):
+                col = config['col_start'] + col_offset
+                bits = binary_str[col_offset*4:(col_offset+1)*4]
+                
+                for row_offset, bit in enumerate(bits):
+                    row = 7 - row_offset
+                    intensity = 1.0
+                    
+                    if bit == '1':
+                        # Bits actifs pleins
+                        self.matrix.set_pixel(col, row, color)
+                    else:
+                        # Bits inactifs avec animation
+                        phase = (row_offset + col_offset * 4) / 8.0
+                        if (count_progress * 1.2) > phase:
+                            faded = tuple(c // 4 for c in color)
+                            self.matrix.set_pixel(col, row, faded)
+        
+        self._draw_separators()
+    
+    def _draw_pulse(self, hours, minutes, seconds):
+        """Mode avec pulsation."""
+        # Pulsation basée sur les secondes
+        pulse_base = 0.7 + 0.3 * math.sin(self.animation_time * math.tau)
+        pulse_sec = 0.8 + 0.2 * math.sin(self.animation_time * math.tau * 2)
+        
+        # Heures et minutes avec pulsation douce
+        self._draw_binary_value(hours, BIT_POSITIONS['hours'], 
+                               tuple(int(c * pulse_base) for c in COLOR_HOURS))
+        self._draw_binary_value(minutes, BIT_POSITIONS['minutes'], 
+                               tuple(int(c * pulse_base) for c in COLOR_MINUTES))
+        
+        # Secondes avec pulsation accentuée
+        self._draw_binary_value(seconds, BIT_POSITIONS['seconds'], 
+                               tuple(int(c * pulse_sec) for c in COLOR_SECONDS))
+        
+        # Barre de progression des secondes
+        sec_progress = seconds / 59.0
+        bar_height = int(sec_progress * 8)
+        for i in range(bar_height):
+            hue = (self.animation_time * 20 + i * 30) % 360
+            color = hsv_to_rgb(hue / 360, 0.7, pulse_sec)
+            self.matrix.set_pixel(7, 7 - i, color)
+    
+    def _draw_rainbow(self, hours, minutes, seconds):
+        """Mode arc-en-ciel."""
+        time_fraction = hours / 24.0 + minutes / 1440.0 + seconds / 86400.0
+        
+        for value, config, _ in [
+            (hours, BIT_POSITIONS['hours'], COLOR_HOURS),
+            (minutes, BIT_POSITIONS['minutes'], COLOR_MINUTES),
+            (seconds, BIT_POSITIONS['seconds'], COLOR_SECONDS)
+        ]:
+            binary_str = f"{value:08b}"
+            
+            for col_offset in range(2):
+                col = config['col_start'] + col_offset
+                bits = binary_str[col_offset*4:(col_offset+1)*4]
+                
+                for row_offset, bit in enumerate(bits):
+                    if bit == '1':
+                        # Couleur basée sur position et temps
+                        hue = (time_fraction * 360 + col * 45 + row_offset * 15) % 360
+                        saturation = 0.8 + 0.2 * math.sin(self.animation_time + col)
+                        color = hsv_to_rgb(hue / 360, saturation, 1.0)
+                        self.matrix.set_pixel(col, 7 - row_offset, color)
+        
+        # Colonne séparatrice arc-en-ciel
+        for y in range(8):
+            hue = (self.animation_time * 30 + y * 45) % 360
+            color = hsv_to_rgb(hue / 360, 0.6, 0.7)
+            self.matrix.set_pixel(6, y, color)
+    
+    def _draw_matrix_effect(self, hours, minutes, seconds):
+        """Effet Matrix digital rain avec heure intégrée."""
+        # Ajouter de nouvelles gouttes
+        if len(self.matrix_drops) < 15 and (seconds % 3 == 0):
+            self.matrix_drops.append({
+                'x': (hours + minutes + seconds) % 8,
+                'y': 0,
+                'speed': 0.5 + (seconds % 10) / 20,
+                'brightness': 1.0,
+                'length': 3 + (minutes % 5)
+            })
+        
+        # Mettre à jour les gouttes existantes
+        for drop in self.matrix_drops[:]:
+            drop['y'] += drop['speed']
+            drop['brightness'] *= 0.95
+            
+            if drop['y'] >= 8 or drop['brightness'] < 0.1:
+                self.matrix_drops.remove(drop)
+        
+        # Dessiner les gouttes
+        for drop in self.matrix_drops:
+            for i in range(drop['length']):
+                y_pos = int(drop['y'] - i)
+                if 0 <= y_pos < 8:
+                    intensity = drop['brightness'] * (1.0 - i/drop['length'])
+                    color = (0, int(255 * intensity), 0)
+                    self.matrix.set_pixel(drop['x'], y_pos, color)
+        
+        # Superposer l'heure en filigrane
+        alpha = 0.3  # Transparence
+        self._draw_binary_value(hours, BIT_POSITIONS['hours'], 
+                               tuple(int(c * alpha) for c in COLOR_HOURS))
+        self._draw_binary_value(minutes, BIT_POSITIONS['minutes'], 
+                               tuple(int(c * alpha) for c in COLOR_MINUTES))
+    
+    def _draw_fire_effect(self, hours, minutes, seconds):
+        """Effet de feu avec heure intégrée."""
+        # Génération de chaleur à la base
+        for x in range(8):
+            self.fire_heat[0][x] = min(1.0, self.fire_heat[0][x] + 
+                                      (0.1 if (x + seconds) % 3 == 0 else 0))
+        
+        # Propagation vers le haut
+        for y in range(7, 0, -1):
+            for x in range(8):
+                # Moyenne des cellules voisines
+                left = self.fire_heat[y][(x-1) % 8]
+                right = self.fire_heat[y][(x+1) % 8]
+                below = self.fire_heat[y-1][x]
+                
+                self.fire_heat[y][x] = (left + right + below) / 3.5
+                self.fire_heat[y][x] *= 0.95  # Refroidissement
+        
+        # Affichage du feu
+        for y in range(8):
+            for x in range(8):
+                heat = self.fire_heat[y][x]
+                if heat > 0.1:
+                    # Gradient feu: jaune -> orange -> rouge
+                    if heat > 0.7:
+                        color = (255, 255, int(200 * heat))
+                    elif heat > 0.4:
+                        color = (255, int(180 * heat), 0)
+                    else:
+                        color = (int(200 * heat), int(80 * heat), 0)
+                    
+                    self.matrix.set_pixel(x, y, color)
+        
+        # Superposer l'heure en filigrane
+        alpha = 0.4
+        self._draw_binary_value(hours % 12, BIT_POSITIONS['hours'], 
+                               tuple(int(c * alpha) for c in (0, 200, 255)))
+    
+    def _draw_separators(self):
+        """Dessine les séparateurs."""
+        # Points aux intersections
+        for y in [1, 3, 5]:
+            pulse = 0.8 + 0.2 * math.sin(self.animation_time * 2 + y)
+            color = tuple(int(c * pulse) for c in COLOR_SEPARATOR)
+            self.matrix.set_pixel(6, y, color)
+    
+    def _apply_transition(self):
+        """Applique un effet de transition entre modes."""
+        progress = self.transition_progress
+        fade = math.sin(progress * math.pi)  # Fonction d'easing
+        
+        if progress < 0.5:
+            # Fade out
+            self.matrix.dim(1.0 - fade)
+        else:
+            # Fade in
+            self.matrix.dim(fade)
+    
+    def set_mode(self, mode):
+        """Change le mode avec transition."""
+        if 0 <= mode < MODE_COUNT:
+            self.target_mode = mode
+            self.transition_progress = 0.0
+            print(f"🔄 Changement vers mode: {self._mode_name(mode)}")
+    
+    def next_mode(self):
+        """Passe au mode suivant."""
+        self.set_mode((self.mode + 1) % MODE_COUNT)
+    
+    def _mode_name(self, mode):
+        """Nom du mode."""
+        names = [
+            "Binaire Classique",
+            "Animation Comptage",
+            "Pulsation Temporelle",
+            "Arc-en-Ciel Dynamique",
+            "Matrix Digital Rain",
+            "Effet Feu"
+        ]
+        return names[mode] if mode < len(names) else f"Mode {mode}"
+
+# ============================================================================
+# INTERFACE UTILISATEUR
+# ============================================================================
+
+class ClockInterface:
+    """Interface utilisateur avec animations et menus."""
+    
+    def __init__(self, matrix, clock, time_manager):
+        self.matrix = matrix
+        self.clock = clock
+        self.time_manager = time_manager
+        self.showing_info = False
+        self.info_timeout = 0
+    
+    def show_startup_animation(self):
+        """Animation de démarrage spectaculaire."""
+        print("\n" + "🌟" * 30)
+        print("        HORLOGE BINAIRE 8x8 - CIRCUITPYTHON 10")
+        print("🌟" * 30)
+        
+        # Animation de spirale
+        for frame in range(30):
+            self.matrix.fill((0, 0, 0))
+            for i in range(64):
+                angle = i * 0.1 + frame * 0.3
+                radius = (frame / 30) * 4
+                x = int(3.5 + radius * math.cos(angle))
+                y = int(3.5 + radius * math.sin(angle))
+                
+                if 0 <= x < 8 and 0 <= y < 8:
+                    hue = (frame * 12 + i * 5) % 360
+                    color = hsv_to_rgb(hue / 360, 1.0, 1.0)
+                    self.matrix.set_pixel(x, y, color)
+            
+            self.matrix.show()
+            time.sleep(0.03)
+        
+        # Explosion finale
+        self.matrix.fill((255, 255, 255))
+        self.matrix.show()
+        time.sleep(0.1)
+        
+        # Révélation du texte "BINARY"
+        text = "BINARY"
+        for i, char in enumerate(text):
+            x = i + 1
+            ascii_val = ord(char)
+            binary = f"{ascii_val:08b}"
+            
+            for bit_pos in range(4):
+                if binary[bit_pos] == '1':
+                    self.matrix.set_pixel(x, 3 + bit_pos, (255, 100, 0))
+            
+            self.matrix.show()
+            time.sleep(0.2)
+        
+        time.sleep(1)
+        self.matrix.clear()
+    
+    def show_current_mode(self):
+        """Affiche brièvement le mode courant."""
         self.matrix.fill((0, 0, 0))
         
-        # Afficher les chiffres simples
-        digits = [
-            hours // 10, hours % 10,
-            minutes // 10, minutes % 10,
-            seconds // 10, seconds % 10
-        ]
+        # Afficher le numéro du mode
+        mode_num = self.clock.mode + 1
+        binary_mode = f"{mode_num:04b}"
         
-        # Animation rapide
-        for i, digit in enumerate(digits):
-            col = i + 1
-            for row in range(min(8, digit + 1)):
-                color = hsv_to_rgb(i * 60 / 360, 1.0, 1.0)
-                self.matrix.set_pixel(col, 7 - row, color)
+        for i, bit in enumerate(binary_mode):
+            if bit == '1':
+                hue = (self.clock.mode * 60) % 360
+                color = hsv_to_rgb(hue / 360, 1.0, 1.0)
+                self.matrix.set_pixel(2 + i, 4, color)
         
         self.matrix.show()
-        time.sleep(1)
-        self.matrix.fill((0, 0, 0))
+        time.sleep(0.8)
+        self.matrix.clear()
+    
+    def show_time_debug(self, hours, minutes, seconds):
+        """Affiche un debug visuel."""
+        if self.showing_info:
+            # Mode texte alternatif
+            self._show_text_display(hours, minutes, seconds)
+            
+            self.info_timeout -= 1
+            if self.info_timeout <= 0:
+                self.showing_info = False
+        else:
+            # Mode horloge normal
+            self.clock.update(hours, minutes, seconds)
+    
+    def _show_text_display(self, hours, minutes, seconds):
+        """Affiche l'heure en format texte."""
+        self.matrix.fill((0, 0, 20))
+        
+        # Afficher les chiffres de l'heure
+        digits = [hours // 10, hours % 10, minutes // 10, minutes % 10]
+        
+        for i, digit in enumerate(digits):
+            if digit > 0:
+                for j in range(min(digit, 8)):
+                    color = hsv_to_rgb(i * 90 / 360, 1.0, 1.0)
+                    self.matrix.set_pixel(i * 2, 7 - j, color)
+        
         self.matrix.show()
 
+# ============================================================================
+# GESTION DES BOUTONS
+# ============================================================================
+
+class ButtonHandler:
+    """Gestion des entrées boutons."""
+    
+    def __init__(self, pin):
+        import digitalio
+        self.button = digitalio.DigitalInOut(pin)
+        self.button.direction = digitalio.Direction.INPUT
+        self.button.pull = digitalio.Pull.UP
+        
+        self.last_state = self.button.value
+        self.last_press_time = 0
+        self.long_press_threshold = 1.0
+        
+        self.click_count = 0
+        self.last_click_time = 0
+        self.double_click_threshold = 0.5
+        
+        print(f"🔄 Bouton initialisé sur {pin}")
+    
+    def update(self):
+        """Met à jour l'état du bouton."""
+        current_state = self.button.value
+        current_time = time.monotonic()
+        
+        # Détection d'appui (front descendant)
+        if not current_state and self.last_state:
+            self.last_press_time = current_time
+            self.click_count += 1
+            
+            # Vérifier double-clic
+            if current_time - self.last_click_time < self.double_click_threshold:
+                self.click_count = 2
+            self.last_click_time = current_time
+        
+        self.last_state = current_state
+        
+        # Retourner le type d'événement
+        if self.click_count > 0:
+            if current_state:  # Bouton relâché
+                press_duration = current_time - self.last_press_time
+                
+                if press_duration >= self.long_press_threshold:
+                    event = 'long'
+                elif self.click_count >= 2:
+                    event = 'double'
+                else:
+                    event = 'click'
+                
+                self.click_count = 0
+                return event
+        
+        return None
 
 # ============================================================================
 # PROGRAMME PRINCIPAL
 # ============================================================================
 
 def main():
-    """Fonction principale de l'horloge binaire."""
-    print("\n" + "="*50)
-    print("HORLOGE BINAIRE 8x8 - INITIALISATION")
-    print("="*50)
+    """Programme principal optimisé."""
+    print("\n🚀 Initialisation en cours...")
     
-    # Initialisation
-    matrix = NeoPixelMatrix(LED_PIN, brightness=BRIGHTNESS)
-    clock = BinaryClock(matrix, mode=MODE_BINARY)
-    time_manager = TimeManager(use_rtc=False)  # Mettre True si RTC disponible
-    info = InfoDisplay(matrix)
+    # Initialisation des composants
+    matrix = NeoPixelMatrix(LED_PIN, brightness=BRIGHTNESS, auto_write=False)
+    time_manager = AdvancedTimeManager()
+    clock = AdvancedBinaryClock(matrix)
+    interface = ClockInterface(matrix, clock, time_manager)
+    button = ButtonHandler(BUTTON_PIN)
     
-    # Animation de démarrage
-    info.show_boot_animation()
-    
-    # Exemples d'affichage binaire
-    print("\nDemonstration conversion binaire:")
-    info.show_binary_example(23, COLOR_HOURS, "Heures max (23)")
-    info.show_binary_example(59, COLOR_MINUTES, "Minutes max (59)")
-    info.show_binary_example(42, COLOR_SECONDS, "Exemple (42)")
-    
-    # Régler l'heure de départ (12:00:00)
+    # Réglage de l'heure
     time_manager.set_time(12, 0, 0)
     
-    # Variables pour changement de mode
-    mode_change_counter = 0
-    current_mode = MODE_BINARY
-    modes = [MODE_BINARY, MODE_COUNTING, MODE_PULSE, MODE_RAINBOW]
-    mode_names = ["Binaire", "Comptage", "Pulsation", "Arc-en-ciel"]
+    # Animation de démarrage
+    interface.show_startup_animation()
+    interface.show_current_mode()
     
-    print("\n" + "="*50)
-    print("Horloge binaire active!")
-    print("Mode:", mode_names[current_mode])
-    print("Format: HH:MM:SS en binaire")
-    print("Colonnes 0-1: Heures | 2-3: Minutes | 4-5: Secondes")
-    print("="*50 + "\n")
+    print("\n✅ Prêt !")
+    print("Contrôles:")
+    print("  • Clic: Changement de mode")
+    print("  • Double-clic: Affichage debug")
+    print("  • Appui long: Réglage heure")
+    print("\n" + "─" * 60)
     
-    last_debug_output = 0
-    
-    try:
-        while True:
-            # Obtenir l'heure actuelle
-            hours, minutes, seconds = time_manager.get_time()
-            
-            # Afficher l'heure en binaire
-            clock.display_time(hours, minutes, seconds, animate=True)
-            
-            # Changer de mode automatiquement toutes les 30 secondes
-            mode_change_counter += 1
-            if mode_change_counter >= 300:  # 30 secondes à 10 FPS
-                mode_change_counter = 0
-                current_mode = (current_mode + 1) % len(modes)
-                clock.set_mode(modes[current_mode])
-                print(f"Changement de mode: {mode_names[current_mode]}")
-            
-            # Afficher l'heure en décimal dans la console toutes les 10 secondes
-            if time.monotonic() - last_debug_output > 10:
-                binary_debug = time_manager.get_binary_debug(hours, minutes, seconds)
-                print(f"{hours:02d}:{minutes:02d}:{seconds:02d} - {binary_debug}")
-                last_debug_output = time.monotonic()
-            
-            # Attendre jusqu'à la prochaine seconde
-            time.sleep(0.1)  # 10 FPS
-    
-    except KeyboardInterrupt:
-        print("\n\nArret de l'horloge binaire...")
-        matrix.clear()
-        print("Matrice éteinte. Au revoir!")
-
-
-# ============================================================================
-# VERSION AVEC BOUTON POUR CHANGER DE MODE
-# ============================================================================
-
-def main_with_button():
-    """Version avec bouton pour changer de mode manuellement."""
-    import digitalio
-    
-    # Configuration du bouton
-    BUTTON_PIN = board.GP1
-    button = digitalio.DigitalInOut(BUTTON_PIN)
-    button.direction = digitalio.Direction.INPUT
-    button.pull = digitalio.Pull.UP
-    
-    # Initialisation
-    matrix = NeoPixelMatrix(LED_PIN, brightness=BRIGHTNESS)
-    clock = BinaryClock(matrix, mode=MODE_BINARY)
-    time_manager = TimeManager(use_rtc=False)
-    
-    # Variables
-    current_mode = 0
-    modes = [MODE_BINARY, MODE_COUNTING, MODE_PULSE, MODE_RAINBOW]
-    mode_names = ["Binaire", "Comptage", "Pulsation", "Arc-en-ciel"]
-    last_button_state = button.value
-    button_press_time = 0
-    
-    print("Horloge binaire avec bouton - Appuyez pour changer de mode")
+    # Variables de performance
+    frame_count = 0
+    last_fps_time = time.monotonic()
+    fps = 0
     
     try:
         while True:
-            # Détection du bouton
-            current_button_state = button.value
-            if current_button_state != last_button_state:
-                if not current_button_state:  # Bouton appuyé (LOW avec pull-up)
-                    button_press_time = time.monotonic()
-                else:  # Bouton relâché
-                    press_duration = time.monotonic() - button_press_time
-                    if press_duration > 0.05: # Anti-rebond
-                        # Changer de mode
-                        current_mode = (current_mode + 1) % len(modes)
-                        clock.set_mode(modes[current_mode])
-                        print(f"Mode: {mode_names[current_mode]}")
-                        
-                        # Afficher brièvement le nom du mode
-                        matrix.fill((0, 0, 0))
-                        # Animation simple pour le nom du mode
-                        for i in range(8):
-                            color = hsv_to_rgb(current_mode * 90 / 360, 1.0, 1.0)
-                            matrix.set_pixel(i, current_mode, color)
-                        matrix.show()
-                        time.sleep(0.5)
+            # Gestion du bouton
+            button_event = button.update()
+            if button_event:
+                print(f"Bouton: {button_event}")
                 
-                last_button_state = current_button_state
+                if button_event == 'click':
+                    clock.next_mode()
+                    interface.show_current_mode()
+                elif button_event == 'double':
+                    interface.showing_info = True
+                    interface.info_timeout = 100  # ~5 secondes
+                elif button_event == 'long':
+                    # Mode réglage heure (simplifié)
+                    h, m, s = time_manager.get_time()
+                    time_manager.set_time((h + 1) % 24, m, s)
             
-            # Afficher l'heure
+            # Récupération de l'heure
             hours, minutes, seconds = time_manager.get_time()
-            clock.display_time(hours, minutes, seconds, animate=True)
             
-            time.sleep(0.1)
+            # Mise à jour de l'affichage
+            interface.show_time_debug(hours, minutes, seconds)
+            
+            # Calcul FPS (toutes les 100 frames)
+            frame_count += 1
+            if frame_count >= 100:
+                current_time = time.monotonic()
+                elapsed = current_time - last_fps_time
+                fps = frame_count / elapsed
+                
+                print(f"📊 FPS: {fps:.1f} | Heure: {hours:02d}:{minutes:02d}:{seconds:02d}")
+                
+                frame_count = 0
+                last_fps_time = current_time
+            
+            # Contrôle de la vitesse de boucle
+            time.sleep(0.02)  # ~50 FPS max
     
     except KeyboardInterrupt:
+        print("\n\n🛑 Arrêt demandé...")
+    except Exception as e:
+        print(f"\n⚠️ Erreur: {e}")
+        import traceback
+        traceback.print_exc()
+    finally:
         matrix.clear()
-        print("Au revoir!")
+        print("\n✨ Au revoir !")
+        print("=" * 60)
 
-
-# ============================================================================
-# VERSION SIMPLIFIÉE (SANS ANIMATIONS)
-# ============================================================================
-
-def simple_binary_clock():
-    """Version ultra-simple de l'horloge binaire."""
-    matrix = NeoPixelMatrix(LED_PIN, brightness=0.1)
+def simple_mode():
+    """Mode simple sans animations."""
+    matrix = NeoPixelMatrix(LED_PIN, brightness=0.15)
+    time_manager = AdvancedTimeManager()
     
-    # Heure de départ
-    hours, minutes, seconds = 12, 0, 0
-    start_time = time.monotonic()
-    
-    print("Horloge binaire simple - Ctrl+C pour quitter")
+    print("⏱️ Mode simple - Horloge binaire basique")
     
     try:
         while True:
-            # Calculer le temps écoulé
-            elapsed = time.monotonic() - start_time
-            total_seconds = int(elapsed)
+            h, m, s = time_manager.get_time()
             
-            # Mettre à jour l'heure
-            seconds = total_seconds % 60
-            minutes = (total_seconds // 60) % 60
-            hours = (total_seconds // 3600 + 12) % 24
-            
-            # Effacer l'écran
+            # Affichage minimaliste
             matrix.fill((0, 0, 0))
             
-            # Afficher heures (colonnes 0-1)
-            h_bin = format(hours, '08b')
+            # Heures
+            h_bin = f"{h:08b}"
             for col in range(2):
                 bits = h_bin[col*4:(col+1)*4]
                 for i, bit in enumerate(bits):
                     if bit == '1':
-                        matrix.set_pixel(col, 7-i, (255, 50, 0))
+                        matrix.set_pixel(col, 7-i, COLOR_HOURS)
             
-            # Afficher minutes (colonnes 2-3)
-            m_bin = format(minutes, '08b')
+            # Minutes
+            m_bin = f"{m:08b}"
             for col in range(2, 4):
                 bits = m_bin[(col-2)*4:(col-1)*4]
                 for i, bit in enumerate(bits):
                     if bit == '1':
-                        matrix.set_pixel(col, 7-i, (0, 255, 50))
+                        matrix.set_pixel(col, 7-i, COLOR_MINUTES)
             
-            # Afficher secondes (colonnes 4-5)
-            s_bin = format(seconds, '08b')
+            # Secondes
+            s_bin = f"{s:08b}"
             for col in range(4, 6):
                 bits = s_bin[(col-4)*4:(col-3)*4]
                 for i, bit in enumerate(bits):
                     if bit == '1':
-                        matrix.set_pixel(col, 7-i, (50, 100, 255))
+                        matrix.set_pixel(col, 7-i, COLOR_SECONDS)
             
-            # Séparateur (colonne 6)
-            if seconds % 2 == 0:  # Clignotement
-                for y in [2, 5]:
-                    matrix.set_pixel(6, y, (100, 100, 100))
+            # Séparateur clignotant
+            if s % 2 == 0:
+                matrix.set_pixel(6, 3, COLOR_SEPARATOR)
+                matrix.set_pixel(6, 4, COLOR_SEPARATOR)
             
             matrix.show()
             
-            # Afficher l'heure dans la console toutes les minutes
-            if seconds == 0:
-                print(f"{hours:02d}:{minutes:02d}:{seconds:02d} - "
-                      f"H:{h_bin} M:{m_bin} S:{s_bin}")
+            # Afficher toutes les minutes
+            if s == 0 and m == 0:
+                print(f"{h:02d}:{m:02d}:{s:02d}")
             
             time.sleep(0.1)
-    
+            
     except KeyboardInterrupt:
         matrix.clear()
-        print("\nHorloge arrêtée")
-
 
 # ============================================================================
-# CHOIX DU MODE D'EXÉCUTION
+# POINT D'ENTRÉE
 # ============================================================================
 
 if __name__ == "__main__":
-    # Choisissez une des fonctions principales:
+    # Configuration du mode d'exécution
+    MODE = "advanced"  # "advanced" ou "simple"
     
-    # 1. Version complète avec animations
-    main()
-    
-    # 2. Version avec bouton
-    # main_with_button()
-    
-    # 3. Version ultra-simple
-    # simple_binary_clock()
+    if MODE == "advanced":
+        main()
+    else:
+        simple_mode()
