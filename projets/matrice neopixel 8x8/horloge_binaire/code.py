@@ -1,6 +1,6 @@
 """
 Horloge BCD 12h - Programme Principal
-Avec animation des secondes par déplacement de LED
+Version simplifiée du monitoring
 """
 
 import time
@@ -14,19 +14,10 @@ from network import NetworkManager
 
 class BCDClock:
     def __init__(self):
-        """Initialise l'horloge BCD avec animation des secondes"""
+        """Initialise l'horloge BCD avec monitoring simplifié"""
         if Config.DEBUG:
             print("=== Initialisation Horloge BCD ===")
-            print(f"Animation secondes: {'ACTIVÉE' if Config.ANIMATION_SECONDES else 'DÉSACTIVÉE'}")
-            if Config.ANIMATION_SECONDES:
-                print(f"  Durée par phase: {Config.DUREE_ANIM_SECONDE}s")
-                print(f"  Phases par seconde: {Config.ANIM_PAR_SECONDE}")
-            print("Nouvelle organisation des colonnes:")
-            print("  0-1: Heures (2 colonnes, 4 bits)")
-            print("  6:   Dizaines secondes (1 colonne, 3 bits)")
-            print("  2-3: Dizaines minutes (2 colonnes, 3 bits)")
-            print("  7:   Unités secondes (1 colonne, 4 bits)")
-            print("  4-5: Unités minutes (2 colonnes, 4 bits)")
+            print(f"Monitoring réseau: {'ACTIVÉ' if Config.MONITORING_ACTIF else 'DÉSACTIVÉ'}")
         
         # Initialiser les managers
         self.hardware = Hardware()
@@ -43,52 +34,82 @@ class BCDClock:
         
         # Pour l'animation des secondes
         self.derniere_seconde = -1
+        
+        # Pour le monitoring (plus simple)
+        self.dernier_check_wifi = 0
     
     def initialiser_systeme(self):
         """Initialise tout le système"""
         if Config.DEBUG:
             print("Initialisation du système...")
         
-        # Connexion WiFi
+        # Connexion WiFi initiale
         if not self.network.connecter_wifi():
-            self.display.afficher_erreur()
-            self.erreur_affichee = True
             if Config.DEBUG:
                 print("ERREUR: Impossible de se connecter au WiFi")
-            return False
-        
-        # Initialisation NTP
-        if not self.network.initialiser_ntp():
-            self.display.afficher_erreur()
-            self.erreur_affichee = True
-            if Config.DEBUG:
-                print("ERREUR: Impossible d'initialiser NTP")
-            return False
-        
-        # Synchronisation NTP initiale
-        ntp_time = self.network.obtenir_temps_ntp()
-        if ntp_time:
-            self.time_manager.synchroniser_ntp(ntp_time)
-            self.dernier_sync_ntp = time.monotonic()
-            self.erreur_affichee = False
-            
-            if Config.DEBUG:
-                heures, minutes, secondes, pm = self.time_manager.obtenir_heure_actuelle()
-                am_pm = "PM" if pm else "AM"
-                print(f"Heure synchronisée: {heures:02d}:{minutes:02d}:{secondes:02d} {am_pm}")
-            
-            return True
+            # On continue quand même, le monitoring essaiera plus tard
         else:
-            self.display.afficher_erreur()
-            self.erreur_affichee = True
-            return False
+            # Initialisation NTP
+            if not self.network.initialiser_ntp():
+                if Config.DEBUG:
+                    print("ERREUR: Impossible d'initialiser NTP")
+            else:
+                # Synchronisation NTP initiale
+                ntp_time = self.network.obtenir_temps_ntp()
+                if ntp_time:
+                    self.time_manager.synchroniser_ntp(ntp_time)
+                    self.dernier_sync_ntp = time.monotonic()
+                    
+                    if Config.DEBUG:
+                        heures, minutes, secondes, pm = self.time_manager.obtenir_heure_actuelle()
+                        am_pm = "PM" if pm else "AM"
+                        print(f"Heure synchronisée: {heures:02d}:{minutes:02d}:{secondes:02d} {am_pm}")
+        
+        return True  # Toujours retourner True pour continuer
+    
+    def verifier_et_reconnecter_wifi(self):
+        """Vérifie l'état WiFi et tente de reconnecter si nécessaire"""
+        if not Config.MONITORING_ACTIF:
+            return
+        
+        temps_actuel = time.monotonic()
+        
+        # Vérifier toutes les 30 secondes
+        if temps_actuel - self.dernier_check_wifi >= Config.INTERVALLE_MONITORING:
+            self.dernier_check_wifi = temps_actuel
+            
+            if Config.DEBUG_RESEAU:
+                print(f"[Main] Vérification WiFi (échecs: {self.network.echecs_consecutifs})")
+            
+            # Utiliser le monitoring du NetworkManager
+            besoin_reconnecter = self.network.monitoring_reseau()
+            
+            if besoin_reconnecter and not self.network.en_tentative_reconnexion:
+                if Config.DEBUG_RESEAU:
+                    print(f"[Main] Tentative de reconnexion WiFi")
+                
+                if self.network.tenter_reconnexion():
+                    # Réussite
+                    if Config.DEBUG_RESEAU:
+                        print("[Main] WiFi reconnecté avec succès")
+                    
+                    # Réinitialiser NTP si perdu
+                    if not self.network.ntp_client:
+                        self.network.initialiser_ntp()
+                    
+                    # Resynchroniser l'heure
+                    ntp_time = self.network.obtenir_temps_ntp()
+                    if ntp_time:
+                        self.time_manager.synchroniser_ntp(ntp_time)
+                        self.dernier_sync_ntp = temps_actuel
+                        
+                        if Config.DEBUG:
+                            print("[Main] Heure resynchronisée après reconnexion")
     
     def executer(self):
-        """Boucle principale de l'application avec animation"""
+        """Boucle principale simplifiée"""
         if Config.DEBUG:
             print("Démarrage de la boucle principale...")
-            if Config.ANIMATION_SECONDES:
-                print("Animation des secondes activée: déplacement LED toutes les 0.5s")
         
         while True:
             try:
@@ -108,11 +129,9 @@ class BCDClock:
                             print(f"Changement d'état vers: {etat_nom}")
                         
                         if nouvel_etat == State.ETEINT:
-                            # Éteindre avec transition
                             self.display.eteindre(avec_transition=True)
                         elif nouvel_etat == State.AFFICHE:
-                            # Allumer avec transition
-                            self.display.allumer(self.time_manager, avec_transition=True)
+                            self.display.allumer(self.time_manager, avec_transition=True, network_manager=self.network)
                             self.dernier_affichage = None
                     
                     if action == "resync":
@@ -120,41 +139,41 @@ class BCDClock:
                             print("Resynchronisation NTP forcée...")
                         self.synchroniser_ntp()
                 
-                # 3. Mettre à jour l'affichage selon l'état
+                # 3. Vérifier et reconnecter WiFi si nécessaire
+                self.verifier_et_reconnecter_wifi()
+                
+                # 4. Mettre à jour l'affichage selon l'état
                 if self.state.state == State.AFFICHE:
-                    # Vérifier si on doit resynchroniser NTP
+                    # Resynchronisation NTP périodique
                     if self.time_manager.besoin_resynchronisation():
                         if Config.DEBUG:
                             print("Resynchronisation périodique NTP...")
                         self.synchroniser_ntp()
                     
-                    # Obtenir l'heure actuelle
+                    # Obtenir et afficher l'heure
                     heures, minutes, secondes, pm = self.time_manager.obtenir_heure_actuelle()
                     
-                    # Afficher l'heure avec animation
-                    self.display.afficher_heure(self.time_manager, avec_transition=True)
+                    self.display.afficher_heure(
+                        self.time_manager, 
+                        avec_transition=True,
+                        network_manager=self.network
+                    )
                     
-                    # Log chaque changement de minute
+                    # Log chaque minute
                     if Config.DEBUG and secondes == 0 and self.derniere_seconde != 0:
                         am_pm = "PM" if pm else "AM"
-                        print(f"Heure affichée: {heures:02d}:{minutes:02d}:{secondes:02d} {am_pm}")
+                        etat_wifi = self.network.etat_wifi
+                        print(f"{heures:02d}:{minutes:02d}:{secondes:02d} {am_pm} - WiFi: {etat_wifi} (échecs: {self.network.echecs_consecutifs})")
                     
                     self.derniere_seconde = secondes
                 
-                # 4. Gérer les erreurs réseau
-                if not self.network.connected and not self.erreur_affichee:
-                    self.display.afficher_erreur()
-                    self.erreur_affichee = True
-                    if Config.DEBUG:
-                        print("ERREUR: Perte de connexion WiFi")
-                
-                # Pause pour limiter le refresh
+                # Pause
                 time.sleep(Config.REFRESH_RATE)
                 
             except Exception as e:
                 if Config.DEBUG:
                     print(f"ERREUR dans la boucle principale: {e}")
-                time.sleep(1)  # Pause en cas d'erreur
+                time.sleep(1)
     
     def synchroniser_ntp(self):
         """Synchronise avec le serveur NTP"""
@@ -163,15 +182,11 @@ class BCDClock:
         if ntp_time:
             self.time_manager.synchroniser_ntp(ntp_time)
             self.dernier_sync_ntp = time.monotonic()
-            self.erreur_affichee = False
             
             if Config.DEBUG:
                 print("Synchronisation NTP réussie!")
             return True
         else:
-            self.display.afficher_erreur()
-            self.erreur_affichee = True
-            
             if Config.DEBUG:
                 print("Échec synchronisation NTP")
             return False
@@ -179,13 +194,7 @@ class BCDClock:
 def main():
     """Point d'entrée principal"""
     horloge = BCDClock()
-    
-    # Initialisation
-    if not horloge.initialiser_systeme():
-        if Config.DEBUG:
-            print("Échec initialisation, démarrage en mode erreur")
-    
-    # Boucle principale
+    horloge.initialiser_systeme()
     horloge.executer()
 
 if __name__ == "__main__":

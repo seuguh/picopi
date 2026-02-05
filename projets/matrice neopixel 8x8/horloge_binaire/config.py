@@ -1,11 +1,20 @@
 """
 Configuration du projet Horloge BCD
-Avec animation des secondes par déplacement de LED
+Avec monitoring réseau et indicateur de connexion
 """
 
 class Config:
     # WiFi (chargés depuis secrets.py)
+    WIFI_SSID = ""  # Remplacé par secrets.py
+    WIFI_PASSWORD = ""  # Remplacé par secrets.py
     WIFI_TIMEOUT = 30
+    
+    # Monitoring réseau
+    MONITORING_ACTIF = True              # Activer le monitoring
+    INTERVALLE_MONITORING = 30           # Test toutes les 30 secondes
+    TENTATIVES_RECONNEXION = 2           # 2 tentatives supplémentaires
+    DELAI_RECONNEXION = 10               # 10 secondes entre les tentatives
+    SEUIL_ERREUR = 3                     # 3 échecs consécutifs = erreur
     
     # NTP
     NTP_SERVER = "pool.ntp.org"
@@ -37,7 +46,10 @@ class Config:
     COULEUR_NUIT = (20, 0, 0)          # Rouge sombre (22h-6h)
     COULEUR_SECONDES = (0, 50, 50)     # Cyan
     COULEUR_SECONDES_ANIM = (0, 80, 80) # Cyan plus clair pour l'animation
-    COULEUR_ERREUR = (100, 0, 0)       # Rouge
+    COULEUR_ERREUR = (100, 0, 0)       # Rouge erreur WiFi/NTP
+    COULEUR_WIFI_OK = (0, 50, 0)       # Vert pour WiFi OK
+    COULEUR_WIFI_WARNING = (50, 50, 0) # Jaune pour avertissement
+    COULEUR_WIFI_ERREUR = (80, 0, 0)   # Rouge pour erreur WiFi
     
     # Transitions SIMULTANÉES (fade out + fade in en même temps)
     FADE_SECONDE = 0.3    # Plus long pour être visible
@@ -50,3 +62,4 @@ class Config:
     
     # Debug
     DEBUG = True
+    DEBUG_RESEAU = True  # Messages spécifiques au réseau

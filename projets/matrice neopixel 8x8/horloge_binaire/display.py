@@ -1,6 +1,6 @@
 """
 Gestion de l'affichage BCD sur la matrice NeoPixel
-Avec animation des secondes par déplacement de LED
+Avec indicateur de statut WiFi (rangées 6-7 au-dessus des dizaines de minutes)
 """
 
 import time
@@ -18,6 +18,10 @@ class DisplayManager:
         self.animation_seconde_active = False
         self.phase_animation = 0  # 0 ou 1 (2 phases par seconde)
         self.last_animation_time = 0
+        
+        # Indicateur WiFi
+        self.indicateur_wifi_actif = False
+        self.couleur_wifi = (0, 0, 0)
     
     def coords_to_index(self, x, y):
         """
@@ -35,12 +39,10 @@ class DisplayManager:
             return Config.COULEUR_NUIT
         return Config.COULEUR_NORMALE
     
-    def generer_buffer_bcd(self, heures, minutes, secondes, est_pm, timestamp, animation_phase=0):
+    def generer_buffer_bcd(self, heures, minutes, secondes, est_pm, timestamp, animation_phase=0, network_manager=None):
         """
         Génère un buffer de 64 LEDs pour l'heure donnée
-        Avec animation des secondes par déplacement de LED
-        
-        animation_phase: 0 = début de seconde, 1 = milieu de seconde
+        Avec indicateur WiFi sur les rangées 6-7 au-dessus des dizaines de minutes
         """
         buffer = [(0, 0, 0)] * 64
         
@@ -109,6 +111,7 @@ class DisplayManager:
         ajouter_chiffre_large(heures, 4, 0, couleur_base)
         
         # 2. Dizaines de minutes (colonnes 2-3, 3 bits) - colonnes larges
+        # NOTE: Les dizaines de minutes vont de 0-5 (3 bits), donc utilisent rangées 0-5
         dizaines_minutes = minutes // 10
         ajouter_chiffre_large(dizaines_minutes, 3, 2, couleur_base)
         
@@ -140,6 +143,19 @@ class DisplayManager:
             else:
                 ajouter_chiffre_etroit(unites_secondes, 4, 7, Config.COULEUR_SECONDES)
         
+        # 5. Indicateur WiFi (4 LEDs au-dessus des dizaines de minutes - colonnes 2-3, rangées 6-7)
+        # LES DIZAINES DE MINUTES N'UTILISENT QUE LES RANGÉES 0-5, DONC 6-7 SONT LIBRES
+        if network_manager and Config.MONITORING_ACTIF:
+            couleur_wifi = network_manager.get_wifi_color()
+            
+            # Allumer les 4 LEDs AU-DESSUS des dizaines de minutes
+            # Colonnes 2-3, rangées 6-7 (au-dessus du chiffre BCD, qui n'utilise que 0-5)
+            for col in [2, 3]:
+                for row in [6, 7]:  # Seulement les 2 rangées du haut
+                    idx = self.coords_to_index(col, row)
+                    if idx is not None:
+                        buffer[idx] = couleur_wifi
+        
         return buffer
     
     def animation_seconde_update(self):
@@ -161,9 +177,9 @@ class DisplayManager:
         
         return False
     
-    def afficher_heure_animee(self, time_manager):
+    def afficher_heure_animee(self, time_manager, network_manager=None):
         """
-        Affiche l'heure actuelle avec animation des secondes
+        Affiche l'heure actuelle avec animation des secondes et indicateur WiFi
         """
         if self.en_transition:
             return
@@ -174,9 +190,10 @@ class DisplayManager:
         heures, minutes, secondes, est_pm = time_manager.obtenir_heure_actuelle()
         timestamp = time_manager.obtenir_timestamp_actuel()
         
-        # Générer le buffer avec la phase d'animation actuelle
+        # Générer le buffer avec la phase d'animation actuelle et indicateur WiFi
         nouveau_buffer = self.generer_buffer_bcd(
-            heures, minutes, secondes, est_pm, timestamp, self.phase_animation
+            heures, minutes, secondes, est_pm, timestamp, 
+            self.phase_animation, network_manager
         )
         
         # Vérifier si l'heure a changé (nouvelle seconde)
@@ -187,17 +204,14 @@ class DisplayManager:
             self.transition_crossfade(nouveau_buffer, Config.FADE_SECONDE)
             self.last_display = heure_actuelle
             
-            if Config.DEBUG:
+            if Config.DEBUG and secondes == 0:
                 am_pm = "PM" if est_pm else "AM"
-                print(f"Nouvelle seconde: {heures:02d}:{minutes:02d}:{secondes:02d} {am_pm}")
+                print(f"Nouvelle minute: {heures:02d}:{minutes:02d}:{secondes:02d} {am_pm}")
         
         elif animation_changed:
             # Seulement l'animation a changé: mise à jour directe
             self.current_buffer = nouveau_buffer
             self._appliquer_buffer()
-            
-            if Config.DEBUG and secondes % 10 == 0:
-                print(f"Animation seconde phase: {self.phase_animation}")
     
     def transition_crossfade(self, buffer_nouveau, duree):
         """
@@ -246,13 +260,13 @@ class DisplayManager:
         self.current_buffer = buffer_nouveau
         self.en_transition = False
     
-    def afficher_heure(self, time_manager, avec_transition=True):
+    def afficher_heure(self, time_manager, avec_transition=True, network_manager=None):
         """
         Affiche l'heure actuelle (version compatible)
         """
         if Config.ANIMATION_SECONDES:
-            # Utiliser la version animée
-            self.afficher_heure_animee(time_manager)
+            # Utiliser la version animée avec indicateur WiFi
+            self.afficher_heure_animee(time_manager, network_manager)
             return
         
         # Version sans animation (pour compatibilité)
@@ -260,7 +274,8 @@ class DisplayManager:
         timestamp = time_manager.obtenir_timestamp_actuel()
         
         nouveau_buffer = self.generer_buffer_bcd(
-            heures, minutes, secondes, est_pm, timestamp
+            heures, minutes, secondes, est_pm, timestamp, 
+            network_manager=network_manager
         )
         
         # Déterminer la durée et le type de transition
@@ -347,7 +362,7 @@ class DisplayManager:
             self.current_buffer = buffer_eteint
             self._appliquer_buffer()
     
-    def allumer(self, time_manager, avec_transition=True):
+    def allumer(self, time_manager, avec_transition=True, network_manager=None):
         """Allume l'affichage depuis l'état éteint"""
         if self.en_transition:
             return
@@ -360,7 +375,8 @@ class DisplayManager:
         timestamp = time_manager.obtenir_timestamp_actuel()
         
         nouveau_buffer = self.generer_buffer_bcd(
-            heures, minutes, secondes, est_pm, timestamp, self.phase_animation
+            heures, minutes, secondes, est_pm, timestamp, 
+            self.phase_animation, network_manager
         )
         
         if avec_transition:
