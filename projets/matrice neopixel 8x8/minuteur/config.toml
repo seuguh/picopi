@@ -1,0 +1,82 @@
+# Configuration du minuteur BCD avec matrice 8x8
+
+[system]
+nom = "Minuteur BCD 8x8"
+debug = true
+
+# Matrice NeoPixel
+[matrice]
+pin = 0  # GP0
+nombre_leds = 64
+lignes = 8
+colonnes = 8
+luminosite = 0.1  # 0.0 à 1.0
+auto_write = false
+
+# Bouton
+[bouton]
+pin = 1  # GP1
+type = "pulldown"  # pulldown, pullup, none
+appui_long_duree = 1.5  # secondes
+
+# Timer
+[timer]
+duree_initiale = 3600  # secondes (1 heure)
+duree_explosion = 10   # secondes
+rafraichissement = 0.05  # secondes (50ms)
+
+# Transitions
+[transitions]
+seconde = 0.15  # secondes
+minute = 0.3    # secondes
+heure = 0.5     # secondes
+etat = 0.4      # secondes
+etape = 0.02    # secondes par étape d'animation
+
+# Couleurs
+[couleurs.normale]
+r = 0
+g = 0
+b = 100
+
+[couleurs.pause]
+r = 100
+g = 100
+b = 0
+
+[couleurs.secondes]
+r = 0
+g = 50
+b = 50
+
+# Couleurs d'explosion (3 phases)
+[couleurs.explosion.phase1]
+r = 50
+g = 50
+b = 0
+
+[couleurs.explosion.phase2]
+r = 50
+g = 0
+b = 0
+
+[couleurs.explosion.phase3]
+r = 0
+g = 0
+b = 50
+
+# Affichage BCD
+[affichage_bcd]
+# Colonnes pour chaque partie du temps
+# Format: [x_début, x_fin, y_début, y_fin]
+heures = [0, 1, 0, 7]
+dizaines_minutes = [3, 4, 0, 7]
+unites_minutes = [6, 7, 0, 7]
+dizaines_secondes = [2, 2, 0, 5]  # Seulement 3 bits (0-5)
+unites_secondes = [5, 5, 0, 7]
+
+# Comportement animation
+[animation]
+clignotement_rapide = 0.1  # secondes
+extinction_facteur = 0.95  # facteur de réduction par étape
+etapes_extinction = 20     # nombre d'étapes pour l'extinction

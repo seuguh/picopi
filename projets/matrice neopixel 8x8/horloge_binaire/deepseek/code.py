@@ -1,6 +1,7 @@
 """
 Horloge BCD 12h - Programme Principal
-Avec animation des secondes par déplacement de LED
+Architecture modulaire pour Raspberry Pi Pico W
+Nouvelle organisation des colonnes, sans indicateur PM
 """
 
 import time
@@ -14,19 +15,16 @@ from network import NetworkManager
 
 class BCDClock:
     def __init__(self):
-        """Initialise l'horloge BCD avec animation des secondes"""
+        """Initialise l'horloge BCD"""
         if Config.DEBUG:
             print("=== Initialisation Horloge BCD ===")
-            print(f"Animation secondes: {'ACTIVÉE' if Config.ANIMATION_SECONDES else 'DÉSACTIVÉE'}")
-            if Config.ANIMATION_SECONDES:
-                print(f"  Durée par phase: {Config.DUREE_ANIM_SECONDE}s")
-                print(f"  Phases par seconde: {Config.ANIM_PAR_SECONDE}")
             print("Nouvelle organisation des colonnes:")
             print("  0-1: Heures (2 colonnes, 4 bits)")
             print("  6:   Dizaines secondes (1 colonne, 3 bits)")
             print("  2-3: Dizaines minutes (2 colonnes, 3 bits)")
             print("  7:   Unités secondes (1 colonne, 4 bits)")
             print("  4-5: Unités minutes (2 colonnes, 4 bits)")
+            print("  Pas d'indicateur PM")
         
         # Initialiser les managers
         self.hardware = Hardware()
@@ -40,9 +38,6 @@ class BCDClock:
         self.dernier_affichage = None
         self.dernier_sync_ntp = 0
         self.erreur_affichee = False
-        
-        # Pour l'animation des secondes
-        self.derniere_seconde = -1
     
     def initialiser_systeme(self):
         """Initialise tout le système"""
@@ -84,11 +79,9 @@ class BCDClock:
             return False
     
     def executer(self):
-        """Boucle principale de l'application avec animation"""
+        """Boucle principale de l'application"""
         if Config.DEBUG:
             print("Démarrage de la boucle principale...")
-            if Config.ANIMATION_SECONDES:
-                print("Animation des secondes activée: déplacement LED toutes les 0.5s")
         
         while True:
             try:
@@ -108,11 +101,9 @@ class BCDClock:
                             print(f"Changement d'état vers: {etat_nom}")
                         
                         if nouvel_etat == State.ETEINT:
-                            # Éteindre avec transition
                             self.display.eteindre(avec_transition=True)
                         elif nouvel_etat == State.AFFICHE:
-                            # Allumer avec transition
-                            self.display.allumer(self.time_manager, avec_transition=True)
+                            # Réafficher l'heure
                             self.dernier_affichage = None
                     
                     if action == "resync":
@@ -129,17 +120,21 @@ class BCDClock:
                         self.synchroniser_ntp()
                     
                     # Obtenir l'heure actuelle
-                    heures, minutes, secondes, pm = self.time_manager.obtenir_heure_actuelle()
+                    heure_actuelle = self.time_manager.obtenir_heure_actuelle()
                     
-                    # Afficher l'heure avec animation
-                    self.display.afficher_heure(self.time_manager, avec_transition=True)
-                    
-                    # Log chaque changement de minute
-                    if Config.DEBUG and secondes == 0 and self.derniere_seconde != 0:
-                        am_pm = "PM" if pm else "AM"
-                        print(f"Heure affichée: {heures:02d}:{minutes:02d}:{secondes:02d} {am_pm}")
-                    
-                    self.derniere_seconde = secondes
+                    # Afficher si l'heure a changé
+                    if heure_actuelle != self.dernier_affichage:
+                        self.display.afficher_heure(
+                            self.time_manager,
+                            avec_transition=True
+                        )
+                        self.dernier_affichage = heure_actuelle
+                        
+                        if Config.DEBUG and heure_actuelle[2] == 0:
+                            # Afficher l'heure chaque minute
+                            h, m, s, pm = heure_actuelle
+                            am_pm = "PM" if pm else "AM"
+                            print(f"Heure affichée: {h:02d}:{m:02d}:{s:02d} {am_pm}")
                 
                 # 4. Gérer les erreurs réseau
                 if not self.network.connected and not self.erreur_affichee:

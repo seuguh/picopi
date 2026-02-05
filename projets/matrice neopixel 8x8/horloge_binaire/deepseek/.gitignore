@@ -1,0 +1,11 @@
+# Fichiers sensibles
+secrets.py
+__pycache__/
+
+# Fichiers système
+.DS_Store
+Thumbs.db
+
+# Fichiers de configuration CircuitPython
+*.mpy
+firmware.uf2

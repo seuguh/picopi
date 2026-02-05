@@ -1,0 +1,200 @@
+SCHÉMA DE BRANCHEMENT - HORLOGE BCD
+====================================
+
+COMPOSANTS REQUIS:
+- Raspberry Pi Pico W (x1)
+- Matrice NeoPixel 8x8 WS2812B (x1)
+- Bouton poussoir normalement ouvert (x1)
+- Câbles dupont femelle-femelle (x5)
+- Câble USB micro-B pour alimentation
+
+CONNEXIONS:
+-----------
+
+1. MATRICE NEOPIXEL 8x8
+   Pin DIN  → GPIO 0 (GP0) du Pico W
+   Pin VCC  → VBUS (5V) du Pico W
+   Pin GND  → GND du Pico W
+
+2. BOUTON POUSSOIR
+   Pin 1    → GPIO 1 (GP1) du Pico W
+   Pin 2    → GND du Pico W
+
+SCHÉMA ASCII:
+-------------
+
+                    +5V USB
+                      │
+    ┌─────────────────┼───────────────────────┐
+    │                 │                       │
+    │        RASPBERRY PI PICO W              │
+    │                                         │
+    │  ┌────────────────────────────────┐    │
+    │  │ GPIO                           │    │
+    │  │                                │    │
+    │  │  GP0  ──────────────────┐      │    │
+    │  │                         │      │    │
+    │  │  GP1  ────────────┐     │      │    │
+    │  │                   │     │      │    │
+    │  │  VBUS (5V) ───────┼─────┼──┐   │    │
+    │  │                   │     │  │   │    │
+    │  │  GND ─────────────┼─────┼──┼─┐ │    │
+    │  │                   │     │  │ │ │    │
+    │  └───────────────────┼─────┼──┼─┼─┘    │
+    │                      │     │  │ │      │
+    └──────────────────────┼─────┼──┼─┼──────┘
+                           │     │  │ │
+                           │     │  │ └─────────┐
+                    ┌──────┘     │  │           │
+                    │            │  │           │
+              ┌─────┴──────┐     │  │      ┌────┴────┐
+              │  BOUTON    │     │  │      │   GND   │
+              │  POUSSOIR  │     │  │      │  COMMON │
+              │            │     │  │      └─────────┘
+              │  Pin 1  ───┘     │  │
+              │            │     │  │
+              │  Pin 2  ─────────┘  │
+              │            │        │
+              └────────────┘        │
+                                    │
+              ┌─────────────────────┴─────────┐
+              │      MATRICE NEOPIXEL 8x8     │
+              │           WS2812B             │
+              │                               │
+              │  DIN  ────────────────────────┘
+              │                               
+              │  VCC  ────────────────────────┐
+              │                               │
+              │  GND  ─────────────────────────────┘
+              │                               
+              └───────────────────────────────┘
+
+
+VUE DE DESSUS - DÉTAILS PINS:
+------------------------------
+
+RASPBERRY PI PICO W:
+┌───────────────────────────┐
+│                           │
+│  GP0  ●              ● VBUS (5V)
+│  GP1  ●              ●
+│                      ●
+│                      ●
+│  GND  ●              ●
+│                      ●
+│       ...            ...
+│                           │
+└───────────────────────────┘
+
+MATRICE NEOPIXEL (vue arrière):
+┌─────────────┐
+│ ┌─┐         │
+│ │ │ DIN  ●  │ → vers GP0
+│ │L│ VCC  ●  │ → vers VBUS
+│ │E│ GND  ●  │ → vers GND
+│ │D│         │
+│ │S│         │
+│ └─┘         │
+└─────────────┘
+
+BOUTON POUSSOIR:
+   Pin 1  Pin 2
+    ●      ●
+    │      │
+    └──┬───┘
+       │
+  Contact normalement ouvert
+  (fermé quand pressé)
+
+
+NOTES IMPORTANTES:
+------------------
+
+1. ALIMENTATION:
+   - Le port USB du Pico W fournit 5V via la broche VBUS
+   - Suffisant pour 64 LEDs à luminosité ≤ 0.3
+   - Pour luminosité maximale, alimentation externe 5V/2A recommandée
+
+2. SIGNAL DE DONNÉES (DIN):
+   - GP0 (GPIO 0) est le pin de données pour les NeoPixels
+   - Signal logique 3.3V compatible avec WS2812B
+   - Câble le plus court possible (< 30cm recommandé)
+
+3. BOUTON:
+   - Configuration pull-down interne activée dans le code
+   - Résistance interne du Pico W utilisée
+   - Pas besoin de résistance externe
+
+4. MASSE COMMUNE:
+   - Tous les GND doivent être connectés ensemble
+   - Essentiel pour le bon fonctionnement
+
+5. PRÉCAUTIONS:
+   - Ne jamais brancher/débrancher la matrice sous tension
+   - Vérifier la polarité VCC/GND avant d'alimenter
+   - Démarrer avec luminosité basse (0.1-0.2) pour tester
+
+6. WIFI:
+   - Antenne WiFi intégrée au Pico W
+   - Portée réduite si matrice métallique trop proche
+   - Maintenir 10cm d'espace libre autour du Pico W
+
+
+CHECKLIST DE VÉRIFICATION:
+--------------------------
+
+Avant la première mise sous tension, vérifier:
+
+□ GP0 → DIN de la matrice
+□ VBUS → VCC de la matrice
+□ GND Pico → GND matrice
+□ GP1 → Pin 1 du bouton
+□ GND Pico → Pin 2 du bouton
+□ Tous les GND sont interconnectés
+□ Pas de court-circuit VCC/GND
+□ Câbles bien enfoncés dans les connecteurs
+□ Réseau WiFi 2.4 GHz disponible
+□ Fichier secrets.py configuré
+□ Bibliothèques CircuitPython installées
+
+
+ORDRE DE MONTAGE RECOMMANDÉ:
+-----------------------------
+
+1. Installer CircuitPython sur le Pico W
+2. Installer les bibliothèques (neopixel, adafruit_ntp)
+3. Configurer secrets.py
+4. Connecter la matrice NeoPixel (DÉBRANCHÉ)
+5. Connecter le bouton (DÉBRANCHÉ)
+6. Vérifier toutes les connexions
+7. Copier code.py sur CIRCUITPY
+8. Brancher le USB
+9. Observer les messages dans la console série
+10. Tester le bouton
+
+
+DÉPANNAGE DES CONNEXIONS:
+--------------------------
+
+Problème: Aucune LED ne s'allume
+→ Vérifier connexion GP0 → DIN
+→ Vérifier alimentation VCC/GND
+→ Mesurer 5V entre VCC et GND de la matrice
+
+Problème: LEDs s'allument de façon aléatoire
+→ Câble DIN trop long ou de mauvaise qualité
+→ Interférences électromagnétiques
+→ Condensateur 1000µF recommandé entre VCC/GND de la matrice
+
+Problème: Bouton ne répond pas
+→ Vérifier connexion GP1
+→ Vérifier connexion GND du bouton
+→ Tester continuité du bouton avec multimètre
+
+Problème: WiFi ne se connecte pas
+→ Vérifier que le réseau est en 2.4 GHz (pas 5 GHz)
+→ Vérifier secrets.py
+→ Rapprocher le Pico W du routeur pour le test
+
+
+FIN DU SCHÉMA DE BRANCHEMENT

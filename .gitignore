@@ -1,0 +1,20 @@
+# Fichiers secrets - NE PAS COMMITER
+secrets.py
+
+# Fichiers CircuitPython
+*.pyc
+__pycache__/
+.venv/
+*.mpy
+
+# Fichiers système
+.DS_Store
+Thumbs.db
+
+# Fichiers de backup
+*~
+*.bak
+*.swp
+
+# Fichiers de logs
+*.log
