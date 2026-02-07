@@ -1,0 +1,153 @@
+Maintenant, je veux ajouter une fonctionnalité: test connexion
+Affichage sur colonne 5 et 6:
+ -sur la rangée 6, indiquer si le wifi est présent et actif: 
+  -- rouge, KO
+  -- jaune, en cours de test ou connection
+  -- vert OK 
+ -sur la rangée 7, indiquer si on accède à internet (via test du ntp ou autre test si plus pertinent)
+   -- rouge, KO
+   -- jaune, en cours de test ou connection
+   -- vert OK
+On teste toutes les 30 secondes, si un test est KO, on passe jaune et on retest maximum 2 fois à intervalle de 5 secondes. on repasse vert si OK, sinon on passe rouge et on relance les tests à 30 secondes.
+
+Avant de commencer, tu peux me poser des questions si tu as besoin de précision, et attendre que je t'autorise à commencer.
+
+Les fichiers qui seront à modifier, tu me les redonneras intégralement.
+Pour ceux qui ne changent pas, tu donneras juste une liste avec indication "inchangé".
+
+
+<!--Je comprends bien la fonctionnalité que vous voulez ajouter. J'ai quelques questions pour clarifier avant de commencer :
+
+ 1. **Configuration des colonnes** : Vous mentionnez colonnes 5 et 6, mais dans l'organisation actuelle :
+   - Colonnes 4-5 : Unités de minutes (2 colonnes, 4 bits)
+   - Colonne 6 : Dizaines de secondes (1 colonne, 3 bits)
+   
+   Est-ce que vous voulez réutiliser une partie de ces colonnes pour l'affichage du test, ou faut-il réorganiser l'affichage de l'heure pour libérer ces colonnes ? -->
+
+Je me suis trompé: on affiche dans la colonne des dizaines de minutes, sur l'espace libre (les dizaines de minutes sont aussi sur 3 bit)
+
+<!-- 2. **Priorité d'affichage** : Quand les indicateurs de test sont affichés, est-ce qu'ils doivent :
+   - Écraser partiellement l'affichage des secondes/minutes ?
+   - S'afficher en superposition/transparence ?
+   - Remplacer complètement certaines parties de l'heure ? -->
+
+Non, justement, avec la correction juste avant, l'affichage se fait au dessus des dizaines de minutes.
+Voilà un schéma:
+Colonnes:   0  1  2  3  4  5  6  7
+Rangée 7:  [H][H][I][I][M][M][S][S]  ← INTERNET (HAUT)
+Rangée 6:  [H][H][W][W][M][M][S][S]  ← WiFi (BAS)
+Rangée 5:  [H][H][D][D][M][M][S][S]  ← Dizaines minutes (bit 2)
+Rangée 4:  [H][H][D][D][M][M][S][S]  ← Dizaines minutes (bit 2)
+Rangée 3:  [H][H][D][D][M][M][S][S]  ← Dizaines minutes (bit 1)
+Rangée 2:  [H][H][D][D][M][M][S][S]  ← Dizaines minutes (bit 1)
+Rangée 1:  [H][H][D][D][M][M][S][S]  ← Dizaines minutes (bit 0)
+Rangée 0:  [H][H][D][D][M][M][S][S]  ← Dizaines minutes (bit 0)
+
+<!-- 3. **Période de test** : Vous dites "toutes les 30 secondes", mais le test initial au démarrage doit-il aussi suivre cette règle ou faut-il un test immédiat au démarrage ? -->
+
+tests et affichage immédiat au démarrage.
+
+<!-- 4. **Logique de test** :
+   - Le test WiFi : vérifier simplement la présence du réseau (SSID visible) ou la connexion effective ?
+   - Le test Internet : tester uniquement NTP ou faire un ping vers un serveur (ex: 8.8.8.8) ? -->
+
+   le test ntp me semble bien, car il sous entent qu'on accède à internet
+
+<!-- 5. **Indicateurs "en cours"** : 
+   - Quand exactement afficher le jaune "en cours" ? Pendant toute la durée du test ou seulement pendant les tentatives de reconnexion après un échec ? -->
+
+   Si on est OK => pas de jaune pendant le test.
+   Si on est KO => jaune pendant le test (et ensuite on passe vert ou rouge)
+
+<!-- 6. **Impact sur l'affichage principal** : Est-ce que ces indicateurs doivent être visibles en permanence ou seulement :
+   - Pendant les tests ?
+   - Quand il y a des problèmes ?
+   - Toujours (en petit dans un coin) ? -->
+
+Les leds indicatrices doivent toujours être allumées
+
+<!-- 7. **Comportement pendant l'affichage d'erreur** (croix rouge) : Si on est en mode erreur, faut-il quand même afficher ces indicateurs ? -->
+oui
+
+<!-- 8. **État éteint** : Quand l'horloge est éteinte (état ETEINT), faut-il continuer les tests en arrière-plan ? -->
+
+Bonne question. Non, on ne teste pas et on déconnecte le wifi si ça économise de l'énergie 
+
+Voilà pour les clarifications. Pose moi d'autres question si besoin, sinon, attend mon autorisation pour commencer.
+
+
+---
+---
+---
+<!-- Merci pour ces précisions très claires. J'ai encore quelques questions pour finaliser la compréhension :
+
+1. **Indicateurs WiFi/Internet** : Sur le schéma, je vois que les indicateurs occupent 2 colonnes chacun (col 2-3). Est-ce que :
+   - Chaque indicateur est un pixel unique (1 LED) ou un groupe de LEDs ?
+   - Si c'est un groupe, quelle forme doivent-ils avoir ? Carré 2x2 ? Ligne horizontale/verticale ? -->
+
+indicateur wifi: deux leds rangée 6 colonne 2 et colonne 3
+indicateur internet: deux leds rangée 7 colonne 2 et colonne 3
+
+
+<!-- 2. **Résolution des conflits** : L'heure et les indicateurs partagent la même zone (colonnes 2-3). Si une LED doit afficher à la fois un bit des dizaines de minutes ET un indicateur, quelle couleur prioriser ? -->
+
+les dizaines de minutes ne dépassent pas la valeur 6, donc il n'y aura pas de conflit.
+
+<!-- 3. **Sémantique des couleurs** :
+   - Vert = tout fonctionne
+   - Jaune = test en cours (après un KO)
+   - Rouge = KO définitif (attente 30s)
+   Est-ce correct ? -->
+oui
+
+<!-- 4. **Logique de tentative** : 
+   - Test initial : WiFi jaune → test → vert/rouge
+   - Si KO rouge → attendre 30s → jaune → test (max 2 tentatives à 5s d'intervalle)
+   Si KO après 2 tentatives → rouge pendant 30s
+   Est-ce bien cela ? -->
+oui
+
+
+<!-- 5. **Synchronisation des tests** : 
+   - Les tests WiFi et Internet sont-ils lancés en parallèle ou séquentiellement ?
+   - Si WiFi KO, faut-il quand même tester Internet ? -->
+En séquentiel. Si le wifi est KO, on est certain qu'internet est KO
+
+<!-- 6. **Indicateur "en cours de test"** : 
+   - Doit-il clignoter pendant le test ou rester fixe jaune ?
+   - Faut-il un feedback visuel que le test est en cours (animation) ? -->
+   Jaune fixe
+
+<!-- 7. **Gestion du mode éteint** :
+   - Quand on passe en mode ETEINT, faut-il :
+     a. Éteindre aussi les indicateurs ?
+     b. Arrêter complètement les tests WiFi/NTP ?
+     c. Se déconnecter du WiFi ? -->
+     oui
+   <!-- - Au réveil (bouton court), faut-il :
+     a. Relancer immédiatement les tests ?
+     b. Attendre le cycle normal de 30s ? -->
+relance immédiate
+
+<!-- 8. **Impact sur l'erreur générale** : 
+   Actuellement, en cas d'erreur réseau, on affiche une croix rouge sur toute la matrice.
+   Avec les nouveaux indicateurs, faut-il :
+   - Conserver la croix rouge ET les indicateurs ?
+   - Remplacer la croix par les indicateurs seulement ?
+   - Afficher la croix seulement si les deux tests sont rouges ? -->
+
+   La croix rouge ne doit s'afficher qu'a la mise sous tension, quand on n'a pas de référence ntp de départ pour l'horloge. En cas d'erreur en cours de fonctionnement, on ne doit pas afficher la croix rouge, seulement les indicateurs wifi/internet, l'horloge continue sans synchro ntp.
+
+<!-- 9. **Configurations** : Faut-il ajouter des paramètres de configuration pour :
+   - Fréquence des tests (30s)
+   - Nombre de tentatives (2)
+   - Intervalle entre tentatives (5s)
+   - Couleurs des indicateurs ? -->
+   oui
+
+<!-- 10. **Debug** : Les états des tests doivent-ils être loggués en mode DEBUG ? -->
+oui
+
+<!-- Dès que vous aurez validé ces points, je serai prêt à commencer l'implémentation. -->
+
+Si tu n'as pas d'autre question, écrit un récapitulatif des choses à vert et attend mon autorisation pour commencer
